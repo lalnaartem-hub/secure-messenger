@@ -1,0 +1,24 @@
+{
+  "name": "secure-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "E2E-encrypted messenger (NestJS + React + Electron). One service serves web + API + WebSocket.",
+  "workspaces": [
+    "packages/shared",
+    "packages/backend",
+    "packages/frontend",
+    "packages/desktop"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace @msg/backend run start:dev",
+    "dev:frontend": "npm --workspace @msg/frontend run dev",
+    "dev:desktop": "npm --workspace @msg/desktop run dev",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "build": "npm --workspace @msg/shared run build && npm --workspace @msg/backend run build && npm --workspace @msg/frontend run build",
+    "dist:win": "npm --workspace @msg/desktop run dist:win"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+release/
+*.log
+.env
+.DS_Store
+coverage/
+.vite/
+out/

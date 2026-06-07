@@ -1,0 +1,29 @@
+{
+  "name": "@msg/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "dist:all": "electron-builder -mwl"
+  },
+  "build": {
+    "appId": "app.securemessenger.desktop",
+    "productName": "SecureMessenger",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.js"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "SecureMessenger-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
