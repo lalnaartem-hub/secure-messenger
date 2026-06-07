@@ -8,7 +8,7 @@
          and inside the desktop wrapper (https/wss to the public URL). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline';"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline';"
     />
     <title>Secure Messenger</title>
   </head>
