@@ -13,31 +13,19 @@ export default defineConfig({
     include: ['libsodium-wrappers', 'libsodium'],
     exclude: [],
   },
-  resolve: {
-    alias: [
-      // libsodium-wrappers ESM build does `import './libsodium.mjs'` which
-      // Vite/Rollup cannot resolve because the file is a native WASM-backed
-      // module with no corresponding on-disk .mjs artefact in some package
-      // versions.  Redirect it to the CJS build that Vite's pre-bundler has
-      // already processed and can serve correctly.
-      {
-        find: /^\.\/libsodium\.mjs$/,
-        replacement: 'libsodium-wrappers/dist/modules/libsodium-wrappers.js',
-      },
-    ],
-  },
   build: {
     commonjsOptions: {
       include: [/libsodium/, /node_modules/],
     },
     rollupOptions: {
-      // Treat the unresolvable native ESM shard as external so Rollup never
-      // tries to bundle it.  The alias above handles it at dev-server time;
-      // the external + global pair is the production-build safety net.
-      external: ['libsodium.mjs'],
+      // Mark libsodium-wrappers as external so Rollup never attempts to
+      // bundle it (and therefore never chases the unresolvable relative
+      // ./libsodium.mjs import inside the ESM dist).  The module is loaded
+      // from node_modules at runtime where the sibling file is present.
+      external: ['libsodium-wrappers'],
       output: {
         globals: {
-          'libsodium.mjs': 'libsodium',
+          'libsodium-wrappers': 'sodium',
         },
       },
     },
