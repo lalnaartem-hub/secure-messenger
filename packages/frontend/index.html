@@ -3,9 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- CSP hardening against XSS. connect-src allows same-origin plus secure
-         remote API/WS so the same build works served from the backend (web)
-         and inside the desktop wrapper (https/wss to the public URL). -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline';"
