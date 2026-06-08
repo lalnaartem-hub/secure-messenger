@@ -6,10 +6,17 @@ import type { OAuthProfile } from '../auth.service';
 @Injectable()
 export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
   constructor() {
+    const rawId = process.env.GITHUB_CLIENT_ID ?? '';
+    let cleanId = rawId.trim();
+    // Auto-correct '0v23' typo to 'Ov23'
+    if (cleanId.startsWith('0v23')) {
+      cleanId = 'O' + cleanId.substring(1);
+    }
+
     super({
-      clientID: process.env.GITHUB_CLIENT_ID ?? '',
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
-      callbackURL: process.env.GITHUB_CALLBACK_URL ?? '',
+      clientID: cleanId,
+      clientSecret: (process.env.GITHUB_CLIENT_SECRET ?? '').trim(),
+      callbackURL: (process.env.GITHUB_CALLBACK_URL ?? '').trim(),
       scope: ['user:email'],
     });
   }
