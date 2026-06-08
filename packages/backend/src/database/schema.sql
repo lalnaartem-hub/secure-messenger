@@ -109,3 +109,6 @@ CREATE INDEX IF NOT EXISTS idx_receipts_user_status
 -- Migration/Add reactions column to messages if not exists
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
 
+-- Migration/Add bio column to users if not exists
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+

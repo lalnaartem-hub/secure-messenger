@@ -238,3 +238,36 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
 .animate-chat-fade {
   animation: chat-fade-in 0.25s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }
+
+/* Markdown Styling inside message bubbles */
+.markdown-body strong {
+  font-weight: 700;
+}
+.markdown-body em {
+  font-style: italic;
+}
+.markdown-body del {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.markdown-body pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@keyframes highlight-pulse {
+  0% {
+    background-color: rgba(99, 102, 241, 0.35);
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.highlight-pulse {
+  animation: highlight-pulse 1.8s ease-out forwards;
+}

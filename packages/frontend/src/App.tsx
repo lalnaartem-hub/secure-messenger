@@ -5,6 +5,7 @@ import { ChatList } from './components/ChatList';
 import { generateIdentityKeyPair } from '@msg/shared';
 import { api } from './api';
 import { SettingsModal, ChatBackground, AccentColor } from './components/SettingsModal';
+import { ParticleCanvas } from './components/ParticleCanvas';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
 
@@ -45,6 +46,11 @@ export function App() {
     setThemeAccent(accent);
     localStorage.setItem('themeBackground', bg);
     localStorage.setItem('themeAccent', accent);
+
+    const opacity = localStorage.getItem('bubbleOpacity') || '90';
+    const radius = localStorage.getItem('borderRadius') || '16';
+    document.documentElement.style.setProperty('--bubble-opacity', `${opacity}%`);
+    document.documentElement.style.setProperty('--bubble-radius', `${radius}px`);
   };
 
   const handleSendSms = (e: React.FormEvent) => {
@@ -83,8 +89,13 @@ export function App() {
     }
   };
 
-  // Capture OAuth tokens from the redirect fragment (#accessToken=...&refreshToken=...).
+  // Capture OAuth tokens from the redirect fragment (#accessToken=...&refreshToken=...) and load custom properties.
   useEffect(() => {
+    const opacity = localStorage.getItem('bubbleOpacity') || '90';
+    const radius = localStorage.getItem('borderRadius') || '16';
+    document.documentElement.style.setProperty('--bubble-opacity', `${opacity}%`);
+    document.documentElement.style.setProperty('--bubble-radius', `${radius}px`);
+
     if (location.hash.includes('accessToken=')) {
       const params = new URLSearchParams(location.hash.slice(1));
       const token = params.get('accessToken');
@@ -375,6 +386,7 @@ export function App() {
           }}
         />
       )}
+      <ParticleCanvas />
     </div>
   );
 }

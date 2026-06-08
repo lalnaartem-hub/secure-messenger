@@ -56,17 +56,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   @SubscribeMessage('chat:join')
   onJoin(@ConnectedSocket() client: Socket, @MessageBody() body: { chatId: string }) {
-    client.join(`chat:${body.chatId}`);
+    // No-op for backwards compatibility: room joining is no longer needed
     return { ok: true };
   }
 
   @SubscribeMessage('typing')
   async onTyping(@ConnectedSocket() client: Socket, @MessageBody() body: { chatId: string }) {
     await this.presence.setTyping(body.chatId, client.data.userId);
-    client.to(`chat:${body.chatId}`).emit('typing', {
-      chatId: body.chatId,
-      userId: client.data.userId,
-    });
+    const participantIds = await this.messages.getParticipantIds(body.chatId);
+    for (const pId of participantIds) {
+      if (pId !== client.data.userId) {
+        this.server.to(`user:${pId}`).emit('typing', {
+          chatId: body.chatId,
+          userId: client.data.userId,
+        });
+      }
+    }
   }
 
   /**
@@ -96,8 +101,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       replyToId: body.replyToId,
     });
 
-    // Fan out ciphertext to the chat room (delivered to other devices/nodes via Redis adapter).
-    this.server.to(`chat:${body.chatId}`).emit('message:new', saved);
+    const participantIds = await this.messages.getParticipantIds(body.chatId);
+    for (const pId of participantIds) {
+      this.server.to(`user:${pId}`).emit('message:new', saved);
+    }
 
     // Server ACK back to sender (Sent). Recipient devices send their own delivered/read ACKs.
     return { ack: true, id: saved.id, clientMsgId: body.clientMsgId, createdAt: saved.createdAt };
@@ -109,10 +116,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @MessageBody() body: { chatId: string; messageId: string },
   ) {
     await this.messages.markRead(body.messageId, client.data.userId);
-    client.to(`chat:${body.chatId}`).emit('message:read', {
-      messageId: body.messageId,
-      userId: client.data.userId,
-    });
+    const participantIds = await this.messages.getParticipantIds(body.chatId);
+    for (const pId of participantIds) {
+      if (pId !== client.data.userId) {
+        this.server.to(`user:${pId}`).emit('message:read', {
+          messageId: body.messageId,
+          userId: client.data.userId,
+        });
+      }
+    }
   }
 
   @SubscribeMessage('message:react')
@@ -122,11 +134,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   ) {
     const res = await this.messages.react(body.messageId, client.data.userId, body.reaction);
     if (res) {
-      this.server.to(`chat:${body.chatId}`).emit('message:reaction', {
-        chatId: body.chatId,
-        messageId: body.messageId,
-        reactions: res.reactions,
-      });
+      const participantIds = await this.messages.getParticipantIds(body.chatId);
+      for (const pId of participantIds) {
+        this.server.to(`user:${pId}`).emit('message:reaction', {
+          chatId: body.chatId,
+          messageId: body.messageId,
+          reactions: res.reactions,
+        });
+      }
     }
   }
 
@@ -148,7 +163,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       body.cryptoEnvelope,
     );
     if (updated) {
-      this.server.to(`chat:${body.chatId}`).emit('message:edit', updated);
+      const participantIds = await this.messages.getParticipantIds(body.chatId);
+      for (const pId of participantIds) {
+        this.server.to(`user:${pId}`).emit('message:edit', updated);
+      }
     }
   }
 
@@ -159,10 +177,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   ) {
     const res = await this.messages.delete(body.messageId, client.data.userId);
     if (res) {
-      this.server.to(`chat:${body.chatId}`).emit('message:delete', {
-        chatId: body.chatId,
-        messageId: body.messageId,
-      });
+      const participantIds = await this.messages.getParticipantIds(body.chatId);
+      for (const pId of participantIds) {
+        this.server.to(`user:${pId}`).emit('message:delete', {
+          chatId: body.chatId,
+          messageId: body.messageId,
+        });
+      }
     }
   }
 }

@@ -159,9 +159,14 @@ export class MessagesService {
   }
 
   async delete(messageId: string, userId: string) {
-    // Check if the user is the sender of the message
+    // Check if the user is the sender of the message or a participant in the chat containing the message
     const { rows } = await this.pool.query(
-      `DELETE FROM messages WHERE id = $1 AND sender_id = $2 RETURNING chat_id`,
+      `DELETE FROM messages 
+       WHERE id = $1 AND (
+         sender_id = $2 OR 
+         chat_id IN (SELECT chat_id FROM chat_participants WHERE user_id = $2)
+       ) 
+       RETURNING chat_id`,
       [messageId, userId],
     );
     if (rows.length === 0) return null;
@@ -170,6 +175,14 @@ export class MessagesService {
     // Clear recent cache
     await this.redis.del(`chat:${chatId}:recent`);
     return { chatId };
+  }
+
+  async getParticipantIds(chatId: string): Promise<string[]> {
+    const { rows } = await this.pool.query(
+      `SELECT user_id FROM chat_participants WHERE chat_id = $1`,
+      [chatId],
+    );
+    return rows.map((r) => r.user_id);
   }
 
   private toDto(r: any) {

@@ -5,6 +5,9 @@ import { useAuth, useUi } from '../store';
 import { NewChatModal } from './NewChatModal';
 import { useSocket } from '../useSocket';
 import { decryptFrom } from '@msg/shared';
+import { sounds } from '../utils/sound';
+
+type ChatFolder = 'all' | 'direct' | 'group';
 
 export function ChatList({
   activeChatId,
@@ -19,6 +22,7 @@ export function ChatList({
   const typingByChat = useUi((s) => s.typingByChat);
   const queryClient = useQueryClient();
 
+  const [activeFolder, setActiveFolder] = useState<ChatFolder>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [decryptedSnippets, setDecryptedSnippets] = useState<Record<string, string>>({});
@@ -26,7 +30,7 @@ export function ChatList({
   const { data: chats = [], isLoading } = useQuery<any[]>({
     queryKey: ['chats'],
     queryFn: api.listChats,
-    refetchInterval: 10000, // Polling fallback
+    refetchInterval: 12000, // Polling fallback
   });
 
   // 1. Asynchronously decrypt last message ciphertext snippets on list load
@@ -45,7 +49,8 @@ export function ChatList({
           if (peerPubKey) {
             try {
               const text = await decryptFrom(privateKey, peerPubKey, c.last_message_content, c.last_message_envelope);
-              newSnippets[c.id] = text;
+              // Handle sticker format in snippet
+              newSnippets[c.id] = text.startsWith('[sticker:') ? '🎨 Стикер' : text;
               updated = true;
             } catch (e) {
               console.error('[Sidebar] Failed to decrypt last message:', e);
@@ -63,8 +68,17 @@ export function ChatList({
   // 2. Listen to real-time incoming messages to instantly decrypt and update sidebar
   useSocket(
     async (m) => {
+      // Play notification sound if message is from another user
+      if (m.senderId !== currentUserId) {
+        sounds.playReceive();
+      }
+
       const targetChat = chats.find((c) => c.id === m.chatId);
-      if (!targetChat) return;
+      if (!targetChat) {
+        // If chat isn't in our sidebar list, reload chat list
+        queryClient.invalidateQueries({ queryKey: ['chats'] });
+        return;
+      }
 
       const peer = targetChat.participants?.find((p: any) => p.id !== currentUserId);
       const peerPubKey = peer?.publicIdentityKey;
@@ -73,6 +87,9 @@ export function ChatList({
       if (privateKey && peerPubKey) {
         try {
           text = await decryptFrom(privateKey, peerPubKey, m.ciphertext, m.cryptoEnvelope);
+          if (text.startsWith('[sticker:')) {
+            text = '🎨 Стикер';
+          }
         } catch (e) {
           console.error('[SidebarRealtime] Failed to decrypt:', e);
         }
@@ -86,7 +103,12 @@ export function ChatList({
       // Invalidate query to trigger cache refresh and re-order chat lists
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },
-    undefined, // onReaction
+    // onReaction
+    (data) => {
+      sounds.playReact();
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    },
+    // onEdit
     async (editedMsg) => {
       const targetChat = chats.find((c) => c.id === editedMsg.chatId);
       if (!targetChat) return;
@@ -98,6 +120,9 @@ export function ChatList({
       if (privateKey && peerPubKey) {
         try {
           text = await decryptFrom(privateKey, peerPubKey, editedMsg.ciphertext, editedMsg.cryptoEnvelope);
+          if (text.startsWith('[sticker:')) {
+            text = '🎨 Стикер';
+          }
         } catch (e) {
           console.error('[SidebarRealtimeEdit] Failed to decrypt:', e);
         }
@@ -110,6 +135,7 @@ export function ChatList({
 
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },
+    // onDelete
     (deleteData) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     }
@@ -120,11 +146,31 @@ export function ChatList({
     return chat.participants.find((p: any) => p.id !== currentUserId) ?? null;
   };
 
+  // Filter chats by search query AND active folder tab
   const filteredChats = chats.filter((chat) => {
     const peer = getPeerInfo(chat);
     const title = peer ? (peer.displayName || peer.username) : (chat.title ?? 'Групповой чат');
-    return title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    
+    if (activeFolder === 'direct') {
+      return chat.type === 'direct';
+    } else if (activeFolder === 'group') {
+      return chat.type === 'group' || chat.type === 'channel';
+    }
+    return true; // 'all'
   });
+
+  // Count helper for folder badges
+  const getFolderCount = (folder: ChatFolder) => {
+    if (folder === 'direct') {
+      return chats.filter((c) => c.type === 'direct').length;
+    } else if (folder === 'group') {
+      return chats.filter((c) => c.type === 'group' || c.type === 'channel').length;
+    }
+    return chats.length;
+  };
 
   return (
     <div className="h-full flex flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900">
@@ -151,6 +197,34 @@ export function ChatList({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
           </svg>
         </button>
+      </div>
+
+      {/* Folders Tab Menu */}
+      <div className="px-3 pt-2 border-b border-zinc-900/30 flex text-xs font-semibold text-zinc-400 relative">
+        {(['all', 'direct', 'group'] as const).map((folder) => {
+          const isActive = activeFolder === folder;
+          const count = getFolderCount(folder);
+          return (
+            <button
+              key={folder}
+              onClick={() => setActiveFolder(folder)}
+              className={`flex-1 py-2.5 text-center transition-all duration-300 border-b-2 relative ${
+                isActive ? 'border-accent text-accent font-bold' : 'border-transparent hover:text-zinc-200'
+              }`}
+            >
+              <span className="capitalize">
+                {folder === 'all' ? 'Все' : folder === 'direct' ? 'Личные' : 'Группы'}
+              </span>
+              {count > 0 && (
+                <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+                  isActive ? 'bg-accent/20 text-accent' : 'bg-zinc-900 text-zinc-500'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Search Bar */}
@@ -180,7 +254,9 @@ export function ChatList({
             <span className="text-sm text-zinc-500">Загрузка...</span>
           </div>
         ) : filteredChats.length === 0 ? (
-          <div className="text-center py-12 text-zinc-500 text-sm">Нет чатов. Начните диалог!</div>
+          <div className="text-center py-12 text-zinc-500 text-xs leading-relaxed">
+            {searchQuery ? 'Ничего не найдено' : 'Нет чатов в этой категории'}
+          </div>
         ) : (
           filteredChats.map((c: any) => {
             const peer = getPeerInfo(c);

@@ -8,7 +8,7 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Patch('profile')
-  updateProfile(@Req() req: any, @Body() body: { displayName?: string; avatarUrl?: string }) {
+  updateProfile(@Req() req: any, @Body() body: { displayName?: string; avatarUrl?: string; bio?: string }) {
     return this.users.updateProfile(req.user.userId, body);
   }
 

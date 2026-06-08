@@ -52,7 +52,7 @@ export class UsersService {
     ]);
   }
 
-  async updateProfile(userId: string, update: { displayName?: string; avatarUrl?: string }) {
+  async updateProfile(userId: string, update: { displayName?: string; avatarUrl?: string; bio?: string }) {
     const fields: string[] = [];
     const values: any[] = [userId];
     let idx = 2;
@@ -64,6 +64,10 @@ export class UsersService {
       fields.push(`avatar_url = $${idx++}`);
       values.push(update.avatarUrl);
     }
+    if (update.bio !== undefined) {
+      fields.push(`bio = $${idx++}`);
+      values.push(update.bio);
+    }
     if (fields.length === 0) return;
     await this.pool.query(
       `UPDATE users SET ${fields.join(', ')}, updated_at = now() WHERE id = $1`,
@@ -73,7 +77,7 @@ export class UsersService {
 
   async getPublicProfile(userId: string) {
     const { rows } = await this.pool.query(
-      `SELECT id, username, display_name, avatar_url, public_identity_key, last_seen_at
+      `SELECT id, username, display_name, avatar_url, public_identity_key, bio, last_seen_at
        FROM users WHERE id = $1`,
       [userId],
     );
@@ -82,7 +86,7 @@ export class UsersService {
 
   async listAll(excludeUserId: string) {
     const { rows } = await this.pool.query(
-      `SELECT id, username, display_name, avatar_url, public_identity_key, last_seen_at
+      `SELECT id, username, display_name, avatar_url, public_identity_key, bio, last_seen_at
        FROM users WHERE id != $1
        ORDER BY username ASC`,
       [excludeUserId],

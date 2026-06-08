@@ -13,6 +13,7 @@ export function useSocket(
   onReaction?: (data: { chatId: string; messageId: string; reactions: Record<string, string[]> }) => void,
   onEdit?: (m: any) => void,
   onDelete?: (data: { chatId: string; messageId: string }) => void,
+  onRead?: (data: { messageId: string; userId: string }) => void,
 ) {
   const token = useAuth((s) => s.accessToken);
   const setTyping = useUi((s) => s.setTyping);
@@ -20,11 +21,11 @@ export function useSocket(
   const ref = useRef<Socket | null>(null);
 
   // Keep a mutable ref of the latest callbacks to avoid stale closures
-  const callbacksRef = useRef({ onMessage, onReaction, onEdit, onDelete });
+  const callbacksRef = useRef({ onMessage, onReaction, onEdit, onDelete, onRead });
   
   useEffect(() => {
-    callbacksRef.current = { onMessage, onReaction, onEdit, onDelete };
-  }, [onMessage, onReaction, onEdit, onDelete]);
+    callbacksRef.current = { onMessage, onReaction, onEdit, onDelete, onRead };
+  }, [onMessage, onReaction, onEdit, onDelete, onRead]);
 
   useEffect(() => {
     if (!token) return;
@@ -45,6 +46,10 @@ export function useSocket(
 
     socket.on('message:delete', (data) => {
       callbacksRef.current.onDelete?.(data);
+    });
+
+    socket.on('message:read', (data) => {
+      callbacksRef.current.onRead?.(data);
     });
     
     socket.on('typing', ({ chatId, userId }) => setTyping(chatId, userId));
