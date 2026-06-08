@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { useAuth, useUi } from '../store';
 import { NewChatModal } from './NewChatModal';
+import { useSocket } from '../useSocket';
+import { decryptFrom } from '@msg/shared';
 
 export function ChatList({
   activeChatId,
@@ -12,16 +14,76 @@ export function ChatList({
   onSelect: (id: string) => void;
 }) {
   const currentUserId = useAuth((s) => s.userId);
+  const privateKey = useAuth((s) => s.privateKey);
   const onlineUsers = useUi((s) => s.onlineUsers);
   const typingByChat = useUi((s) => s.typingByChat);
+  const queryClient = useQueryClient();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [decryptedSnippets, setDecryptedSnippets] = useState<Record<string, string>>({});
 
   const { data: chats = [], isLoading } = useQuery<any[]>({
     queryKey: ['chats'],
     queryFn: api.listChats,
-    refetchInterval: 10000, // Polling list for new chats every 10 seconds
+    refetchInterval: 10000, // Polling fallback
+  });
+
+  // 1. Asynchronously decrypt last message ciphertext snippets on list load
+  useEffect(() => {
+    if (!chats.length || !privateKey) return;
+
+    (async () => {
+      const newSnippets = { ...decryptedSnippets };
+      let updated = false;
+
+      for (const c of chats) {
+        if (newSnippets[c.id]) continue; // already decrypted
+        if (c.last_message_content && c.last_message_envelope) {
+          const peer = c.participants?.find((p: any) => p.id !== currentUserId);
+          const peerPubKey = peer?.publicIdentityKey;
+          if (peerPubKey) {
+            try {
+              const text = await decryptFrom(privateKey, peerPubKey, c.last_message_content, c.last_message_envelope);
+              newSnippets[c.id] = text;
+              updated = true;
+            } catch (e) {
+              console.error('[Sidebar] Failed to decrypt last message:', e);
+            }
+          }
+        }
+      }
+
+      if (updated) {
+        setDecryptedSnippets(newSnippets);
+      }
+    })();
+  }, [chats, privateKey]);
+
+  // 2. Listen to real-time incoming messages to instantly decrypt and update sidebar
+  useSocket(async (m) => {
+    const targetChat = chats.find((c) => c.id === m.chatId);
+    if (!targetChat) return;
+
+    const peer = targetChat.participants?.find((p: any) => p.id !== currentUserId);
+    const peerPubKey = peer?.publicIdentityKey;
+
+    let text = '🔒 Сообщение';
+    if (privateKey && peerPubKey) {
+      try {
+        text = await decryptFrom(privateKey, peerPubKey, m.ciphertext, m.cryptoEnvelope);
+      } catch (e) {
+        console.error('[SidebarRealtime] Failed to decrypt:', e);
+      }
+    }
+
+    setDecryptedSnippets((prev) => ({
+      ...prev,
+      [m.chatId]: text,
+    }));
+
+    // Invalidate query to trigger cache refresh and re-order chat lists
+    queryClient.invalidateQueries({ queryKey: ['chats'] });
   });
 
   const getPeerInfo = (chat: any) => {
@@ -40,20 +102,24 @@ export function ChatList({
       {/* Sidebar Header */}
       <div className="p-4 border-b border-zinc-900/80 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-purple-500/20">
-            💬
+          {/* Telegram style paper plane SVG */}
+          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-accent/20">
+            <svg className="w-4 h-4 text-white transform rotate-45 -translate-x-0.5 -translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
           </div>
-          <span className="font-semibold text-lg tracking-wide bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-            Чаты
+          <span className="font-bold text-base tracking-wide bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent">
+            Aether
           </span>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-zinc-100 rounded-xl transition-all duration-300 transform active:scale-95 hover:shadow-lg hover:shadow-indigo-500/10"
+          className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-zinc-100 rounded-xl transition-all duration-300 transform active:scale-95"
           title="Новый диалог"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          {/* Plus icon SVG */}
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
           </svg>
         </button>
       </div>
@@ -66,9 +132,10 @@ export function ChatList({
             placeholder="Поиск чатов..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-900/70 border border-zinc-800 rounded-xl py-2 pl-9 pr-4 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors"
+            className="w-full bg-zinc-900/70 border border-zinc-850 rounded-xl py-2 pl-9 pr-4 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-accent transition-colors"
           />
           <div className="absolute left-3 top-2.5 text-zinc-500">
+            {/* Search icon SVG */}
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
@@ -80,7 +147,7 @@ export function ChatList({
       <div className="flex-1 overflow-y-auto space-y-1 p-2 custom-scrollbar">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-10 space-y-2">
-            <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
             <span className="text-sm text-zinc-500">Загрузка...</span>
           </div>
         ) : filteredChats.length === 0 ? (
@@ -94,6 +161,8 @@ export function ChatList({
             // Check typing status
             const typingUsers = typingByChat[c.id];
             const isTyping = typingUsers && typingUsers.size > 0;
+
+            const snippet = decryptedSnippets[c.id] || c.lastMessageText || (peer ? `🔒 E2E Шифрование` : `Групповой чат`);
 
             return (
               <button
@@ -114,7 +183,7 @@ export function ChatList({
                       className="w-11 h-11 rounded-xl object-cover border border-zinc-800"
                     />
                   ) : (
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 text-white flex items-center justify-center font-bold text-base shadow-inner">
+                    <div className="w-11 h-11 rounded-xl bg-accent-gradient text-white flex items-center justify-center font-bold text-base shadow-inner animate-in fade-in duration-300">
                       {title.slice(0, 2).toUpperCase()}
                     </div>
                   )}
@@ -133,9 +202,9 @@ export function ChatList({
                     <span className="font-semibold text-zinc-100 truncate text-[14px]">
                       {title}
                     </span>
-                    {c.lastMessageAt && (
+                    {c.last_message_at && (
                       <span className="text-[10px] text-zinc-500 font-medium whitespace-nowrap">
-                        {new Date(c.lastMessageAt).toLocaleTimeString([], {
+                        {new Date(c.last_message_at).toLocaleTimeString([], {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
@@ -145,17 +214,17 @@ export function ChatList({
 
                   {/* Typing Indicator / Subtitle */}
                   {isTyping ? (
-                    <div className="text-xs text-indigo-400 font-medium animate-pulse flex items-center gap-1.5">
+                    <div className="text-xs text-accent font-medium animate-pulse flex items-center gap-1.5">
                       <span className="flex gap-0.5 items-center">
-                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                       </span>
                       <span>печатает...</span>
                     </div>
                   ) : (
-                    <div className="text-xs text-zinc-500 truncate">
-                      {peer ? `🔒 E2E Шифрование` : `Групповой чат`}
+                    <div className="text-xs text-zinc-500 truncate font-normal">
+                      {snippet}
                     </div>
                   )}
                 </div>

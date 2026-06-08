@@ -39,6 +39,8 @@ export class ChatsService {
   async listForUser(userId: string) {
     const { rows } = await this.pool.query(
       `SELECT c.id, c.type, c.title, c.avatar_url, c.last_message_at,
+              msg.content as last_message_content,
+              msg.crypto_envelope as last_message_envelope,
               COALESCE(
                 (
                   SELECT json_agg(
@@ -57,6 +59,7 @@ export class ChatsService {
                 '[]'::json
               ) as participants
        FROM chats c
+       LEFT JOIN messages msg ON msg.id = c.last_message_id
        JOIN chat_participants p ON p.chat_id = c.id
        WHERE p.user_id = $1
        ORDER BY c.last_message_at DESC NULLS LAST`,
