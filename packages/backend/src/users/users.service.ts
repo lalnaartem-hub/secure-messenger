@@ -81,7 +81,17 @@ export class UsersService {
        FROM users WHERE id = $1`,
       [userId],
     );
-    return rows[0] ?? null;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r.id,
+      username: r.username,
+      displayName: r.display_name,
+      avatarUrl: r.avatar_url,
+      publicIdentityKey: r.public_identity_key,
+      bio: r.bio,
+      lastSeenAt: r.last_seen_at,
+    };
   }
 
   async listAll(excludeUserId: string) {
@@ -91,6 +101,14 @@ export class UsersService {
        ORDER BY username ASC`,
       [excludeUserId],
     );
-    return rows;
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      displayName: r.display_name,
+      avatarUrl: r.avatar_url,
+      publicIdentityKey: r.public_identity_key,
+      bio: r.bio,
+      lastSeenAt: r.last_seen_at,
+    }));
   }
 }

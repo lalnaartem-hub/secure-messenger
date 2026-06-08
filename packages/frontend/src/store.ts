@@ -10,24 +10,42 @@ interface AuthState {
   logout: () => void;
 }
 
-export const useAuth = create<AuthState>((set) => ({
-  accessToken: localStorage.getItem('accessToken'),
-  userId: localStorage.getItem('userId'),
-  privateKey: localStorage.getItem('privateKey'),
-  setAuth: ({ accessToken, userId }) => {
-    localStorage.setItem('accessToken', accessToken);
-    localStorage.setItem('userId', userId);
-    set({ accessToken, userId });
-  },
-  setPrivateKey: (privateKey) => {
-    localStorage.setItem('privateKey', privateKey);
-    set({ privateKey });
-  },
-  logout: () => {
-    localStorage.clear();
-    set({ accessToken: null, userId: null, privateKey: null });
-  },
-}));
+export const useAuth = create<AuthState>((set) => {
+  const userId = localStorage.getItem('userId');
+  const privateKey = userId ? (localStorage.getItem(`privateKey_${userId}`) || localStorage.getItem('privateKey')) : localStorage.getItem('privateKey');
+  
+  return {
+    accessToken: localStorage.getItem('accessToken'),
+    userId,
+    privateKey,
+    setAuth: ({ accessToken, userId }) => {
+      localStorage.setItem('accessToken', accessToken);
+      localStorage.setItem('userId', userId);
+      const userPrivateKey = localStorage.getItem(`privateKey_${userId}`);
+      if (userPrivateKey) {
+        localStorage.setItem('privateKey', userPrivateKey);
+        set({ accessToken, userId, privateKey: userPrivateKey });
+      } else {
+        localStorage.removeItem('privateKey');
+        set({ accessToken, userId, privateKey: null });
+      }
+    },
+    setPrivateKey: (key) => {
+      const currentUserId = useAuth.getState().userId;
+      if (currentUserId) {
+        localStorage.setItem(`privateKey_${currentUserId}`, key);
+      }
+      localStorage.setItem('privateKey', key);
+      set({ privateKey: key });
+    },
+    logout: () => {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('privateKey');
+      set({ accessToken: null, userId: null, privateKey: null });
+    },
+  };
+});
 
 interface UiState {
   activeChatId: string | null;

@@ -123,8 +123,8 @@ export function App() {
       (async () => {
         try {
           const { publicKey, privateKey: privKey } = await generateIdentityKeyPair();
-          setPrivateKey(privKey);
           await api.publishIdentityKey(publicKey);
+          setPrivateKey(privKey);
           console.log('[E2E] Identity key pair generated and published.');
         } catch (e) {
           console.error('[E2E] Failed to generate/publish identity keys:', e);

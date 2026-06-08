@@ -32,7 +32,7 @@ export class CryptoController {
     const profile = await this.users.getPublicProfile(peerId);
     const prekey = await this.crypto.claimPrekey(peerId);
     return {
-      identityKey: profile?.public_identity_key ?? null,
+      identityKey: profile?.publicIdentityKey ?? null,
       prekey,
     };
   }
