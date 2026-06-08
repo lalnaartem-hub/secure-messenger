@@ -38,7 +38,24 @@ export class ChatsService {
 
   async listForUser(userId: string) {
     const { rows } = await this.pool.query(
-      `SELECT c.id, c.type, c.title, c.avatar_url, c.last_message_at
+      `SELECT c.id, c.type, c.title, c.avatar_url, c.last_message_at,
+              COALESCE(
+                (
+                  SELECT json_agg(
+                    json_build_object(
+                      'id', u.id,
+                      'username', u.username,
+                      'displayName', u.display_name,
+                      'avatarUrl', u.avatar_url,
+                      'publicIdentityKey', u.public_identity_key
+                    )
+                  )
+                  FROM chat_participants cp
+                  JOIN users u ON u.id = cp.user_id
+                  WHERE cp.chat_id = c.id
+                ),
+                '[]'::json
+              ) as participants
        FROM chats c
        JOIN chat_participants p ON p.chat_id = c.id
        WHERE p.user_id = $1

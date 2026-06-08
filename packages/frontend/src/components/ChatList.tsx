@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { useAuth, useUi } from '../store';
+import { NewChatModal } from './NewChatModal';
 
 export function ChatList({
   activeChatId,
@@ -8,28 +11,167 @@ export function ChatList({
   activeChatId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { data: chats = [], isLoading } = useQuery({
+  const currentUserId = useAuth((s) => s.userId);
+  const onlineUsers = useUi((s) => s.onlineUsers);
+  const typingByChat = useUi((s) => s.typingByChat);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const { data: chats = [], isLoading } = useQuery<any[]>({
     queryKey: ['chats'],
     queryFn: api.listChats,
+    refetchInterval: 10000, // Polling list for new chats every 10 seconds
   });
 
-  if (isLoading) return <div className="p-4 text-slate-400">Загрузка…</div>;
+  const getPeerInfo = (chat: any) => {
+    if (chat.type !== 'direct' || !chat.participants) return null;
+    return chat.participants.find((p: any) => p.id !== currentUserId) ?? null;
+  };
+
+  const filteredChats = chats.filter((chat) => {
+    const peer = getPeerInfo(chat);
+    const title = peer ? (peer.displayName || peer.username) : (chat.title ?? 'Групповой чат');
+    return title.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
-    <ul>
-      {chats.map((c: any) => (
-        <li key={c.id}>
-          <button
-            onClick={() => onSelect(c.id)}
-            className={`w-full text-left px-4 py-3 border-b hover:bg-slate-50 ${
-              activeChatId === c.id ? 'bg-slate-100' : ''
-            }`}
-          >
-            <div className="font-medium">{c.title ?? '(прямой чат)'}</div>
-            <div className="text-xs text-slate-400 uppercase">{c.type}</div>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="h-full flex flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900">
+      {/* Sidebar Header */}
+      <div className="p-4 border-b border-zinc-900/80 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-purple-500/20">
+            💬
+          </div>
+          <span className="font-semibold text-lg tracking-wide bg-gradient-to-r from-zinc-100 to-zinc-400 bg-clip-text text-transparent">
+            Чаты
+          </span>
+        </div>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="p-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-zinc-100 rounded-xl transition-all duration-300 transform active:scale-95 hover:shadow-lg hover:shadow-indigo-500/10"
+          title="Новый диалог"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Search Bar */}
+      <div className="px-4 py-3 border-b border-zinc-900/50">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Поиск чатов..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-zinc-900/70 border border-zinc-800 rounded-xl py-2 pl-9 pr-4 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors"
+          />
+          <div className="absolute left-3 top-2.5 text-zinc-500">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Chats List */}
+      <div className="flex-1 overflow-y-auto space-y-1 p-2 custom-scrollbar">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-10 space-y-2">
+            <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-sm text-zinc-500">Загрузка...</span>
+          </div>
+        ) : filteredChats.length === 0 ? (
+          <div className="text-center py-12 text-zinc-500 text-sm">Нет чатов. Начните диалог!</div>
+        ) : (
+          filteredChats.map((c: any) => {
+            const peer = getPeerInfo(c);
+            const title = peer ? (peer.displayName || peer.username) : (c.title ?? 'Групповой чат');
+            const isPeerOnline = peer ? onlineUsers.has(peer.id) : false;
+            
+            // Check typing status
+            const typingUsers = typingByChat[c.id];
+            const isTyping = typingUsers && typingUsers.size > 0;
+
+            return (
+              <button
+                key={c.id}
+                onClick={() => onSelect(c.id)}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 text-left border ${
+                  activeChatId === c.id
+                    ? 'bg-zinc-900 border-zinc-800 shadow-md shadow-black/30'
+                    : 'bg-transparent border-transparent hover:bg-zinc-900/40 hover:border-zinc-900/50'
+                }`}
+              >
+                {/* Avatar with Presence Indicator */}
+                <div className="relative flex-shrink-0">
+                  {peer?.avatarUrl ? (
+                    <img
+                      src={peer.avatarUrl}
+                      alt={title}
+                      className="w-11 h-11 rounded-xl object-cover border border-zinc-800"
+                    />
+                  ) : (
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 text-white flex items-center justify-center font-bold text-base shadow-inner">
+                      {title.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  {peer && (
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-zinc-950 ${
+                        isPeerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-600'
+                      }`}
+                    />
+                  )}
+                </div>
+
+                {/* Chat Metadata & Snippet */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline mb-0.5">
+                    <span className="font-semibold text-zinc-100 truncate text-[14px]">
+                      {title}
+                    </span>
+                    {c.lastMessageAt && (
+                      <span className="text-[10px] text-zinc-500 font-medium whitespace-nowrap">
+                        {new Date(c.lastMessageAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Typing Indicator / Subtitle */}
+                  {isTyping ? (
+                    <div className="text-xs text-indigo-400 font-medium animate-pulse flex items-center gap-1.5">
+                      <span className="flex gap-0.5 items-center">
+                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                      <span>печатает...</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-zinc-500 truncate">
+                      {peer ? `🔒 E2E Шифрование` : `Групповой чат`}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Active Modal */}
+      {isModalOpen && (
+        <NewChatModal
+          onClose={() => setIsModalOpen(false)}
+          onChatCreated={(chatId) => onSelect(chatId)}
+        />
+      )}
+    </div>
   );
 }

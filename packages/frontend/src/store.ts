@@ -13,13 +13,16 @@ interface AuthState {
 export const useAuth = create<AuthState>((set) => ({
   accessToken: localStorage.getItem('accessToken'),
   userId: localStorage.getItem('userId'),
-  privateKey: null,
+  privateKey: localStorage.getItem('privateKey'),
   setAuth: ({ accessToken, userId }) => {
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('userId', userId);
     set({ accessToken, userId });
   },
-  setPrivateKey: (privateKey) => set({ privateKey }),
+  setPrivateKey: (privateKey) => {
+    localStorage.setItem('privateKey', privateKey);
+    set({ privateKey });
+  },
   logout: () => {
     localStorage.clear();
     set({ accessToken: null, userId: null, privateKey: null });
@@ -29,13 +32,16 @@ export const useAuth = create<AuthState>((set) => ({
 interface UiState {
   activeChatId: string | null;
   typingByChat: Record<string, Set<string>>;
+  onlineUsers: Set<string>;
   setActiveChat: (id: string) => void;
   setTyping: (chatId: string, userId: string) => void;
+  setOnline: (userId: string, online: boolean) => void;
 }
 
 export const useUi = create<UiState>((set) => ({
   activeChatId: null,
   typingByChat: {},
+  onlineUsers: new Set(),
   setActiveChat: (activeChatId) => set({ activeChatId }),
   setTyping: (chatId, userId) =>
     set((s) => {
@@ -45,10 +51,24 @@ export const useUi = create<UiState>((set) => ({
       next[chatId] = set2;
       // auto-clear after 5s (mirrors server TTL)
       setTimeout(() => {
-        const cur = new Set(next[chatId] ?? []);
-        cur.delete(userId);
-        next[chatId] = cur;
+        set((state) => {
+          const currentTyping = { ...state.typingByChat };
+          const set3 = new Set(currentTyping[chatId] ?? []);
+          set3.delete(userId);
+          currentTyping[chatId] = set3;
+          return { typingByChat: currentTyping };
+        });
       }, 5000);
       return { typingByChat: next };
+    }),
+  setOnline: (userId, online) =>
+    set((s) => {
+      const next = new Set(s.onlineUsers);
+      if (online) {
+        next.add(userId);
+      } else {
+        next.delete(userId);
+      }
+      return { onlineUsers: next };
     }),
 }));

@@ -36,4 +36,14 @@ export class UsersService {
     );
     return rows[0] ?? null;
   }
+
+  async listAll(excludeUserId: string) {
+    const { rows } = await this.pool.query(
+      `SELECT id, username, display_name, avatar_url, public_identity_key, last_seen_at
+       FROM users WHERE id != $1
+       ORDER BY username ASC`,
+      [excludeUserId],
+    );
+    return rows;
+  }
 }

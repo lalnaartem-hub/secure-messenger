@@ -11,6 +11,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
 export function useSocket(onMessage: (m: any) => void) {
   const token = useAuth((s) => s.accessToken);
   const setTyping = useUi((s) => s.setTyping);
+  const setOnline = useUi((s) => s.setOnline);
   const ref = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export function useSocket(onMessage: (m: any) => void) {
 
     socket.on('message:new', onMessage);
     socket.on('typing', ({ chatId, userId }) => setTyping(chatId, userId));
+    socket.on('presence:update', ({ userId, online }) => setOnline(userId, online));
 
     // heartbeat keeps presence TTL alive
     const hb = setInterval(() => socket.emit('heartbeat'), 15_000);

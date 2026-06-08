@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 
@@ -6,6 +6,11 @@ import { UsersService } from './users.service';
 @UseGuards(AuthGuard('jwt'))
 export class UsersController {
   constructor(private readonly users: UsersService) {}
+
+  @Get()
+  list(@Req() req: any) {
+    return this.users.listAll(req.user.userId);
+  }
 
   @Get(':id')
   get(@Param('id') id: string) {

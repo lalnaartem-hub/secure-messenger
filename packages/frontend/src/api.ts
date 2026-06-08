@@ -20,6 +20,7 @@ export const api = {
   listChats: () => req('/chats'),
   createChat: (body: { type: string; title?: string; memberIds: string[] }) =>
     req('/chats', { method: 'POST', body: JSON.stringify(body) }),
+  listUsers: () => req('/users'),
   history: (chatId: string, cursor?: { beforeAt: string; beforeId: string }) => {
     const q = cursor ? `?beforeAt=${cursor.beforeAt}&beforeId=${cursor.beforeId}` : '';
     return req(`/chats/${chatId}/messages${q}`);
