@@ -3,7 +3,7 @@ export type MessageKind = 'text' | 'image' | 'file' | 'system';
 
 export interface CryptoEnvelope {
   v: number;                 // crypto scheme version
-  ephemeralPubKey: string;   // base64 X25519 ephemeral public key
+  ephemeralPubKey?: string;  // base64 X25519 ephemeral public key
   nonce: string;             // base64 nonce
   prekeyId?: string;         // claimed one-time prekey id (X3DH)
 }

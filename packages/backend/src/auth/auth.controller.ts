@@ -1,4 +1,4 @@
-import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -6,6 +6,14 @@ import { AuthService } from './auth.service';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  @Post('phone')
+  async phoneAuth(@Body() body: { phone: string; code: string }) {
+    if (body.code !== '1234') {
+      throw new BadRequestException('Неверный код подтверждения. Попробуйте 1234');
+    }
+    return this.auth.validatePhone(body.phone);
+  }
 
   @Get('google')
   @UseGuards(AuthGuard('google'))

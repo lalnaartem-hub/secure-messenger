@@ -31,22 +31,22 @@ export async function generateIdentityKeyPair() {
 export async function encryptFor(
   recipientPublicKeyB64: string,
   plaintext: string,
+  myPrivateKeyB64: string,
 ): Promise<{ ciphertext: string; envelope: CryptoEnvelope }> {
   const s = await sodium();
   const recipientPk = s.from_base64(recipientPublicKeyB64);
-  const ephemeral = s.crypto_box_keypair();
+  const mySk = s.from_base64(myPrivateKeyB64);
+  const sharedKey = s.crypto_box_beforenm(recipientPk, mySk);
   const nonce = s.randombytes_buf(s.crypto_box_NONCEBYTES);
-  const ciphertext = s.crypto_box_easy(
+  const ciphertext = s.crypto_box_easy_afternm(
     s.from_string(plaintext),
     nonce,
-    recipientPk,
-    ephemeral.privateKey,
+    sharedKey,
   );
   return {
     ciphertext: s.to_base64(ciphertext),
     envelope: {
-      v: 1,
-      ephemeralPubKey: s.to_base64(ephemeral.publicKey),
+      v: 2,
       nonce: s.to_base64(nonce),
     },
   };
@@ -54,15 +54,30 @@ export async function encryptFor(
 
 export async function decryptFrom(
   myPrivateKeyB64: string,
+  peerPublicKeyB64: string,
   ciphertextB64: string,
   envelope: CryptoEnvelope,
 ): Promise<string> {
   const s = await sodium();
-  const plain = s.crypto_box_open_easy(
+  const peerPk = s.from_base64(peerPublicKeyB64);
+  const mySk = s.from_base64(myPrivateKeyB64);
+
+  // Backwards compatibility: if it is a legacy version 1 message, decrypt using legacy scheme
+  if (envelope.v === 1 && envelope.ephemeralPubKey) {
+    const plain = s.crypto_box_open_easy(
+      s.from_base64(ciphertextB64),
+      s.from_base64(envelope.nonce),
+      s.from_base64(envelope.ephemeralPubKey),
+      mySk,
+    );
+    return s.to_string(plain);
+  }
+
+  const sharedKey = s.crypto_box_beforenm(peerPk, mySk);
+  const plain = s.crypto_box_open_easy_afternm(
     s.from_base64(ciphertextB64),
     s.from_base64(envelope.nonce),
-    s.from_base64(envelope.ephemeralPubKey),
-    s.from_base64(myPrivateKeyB64),
+    sharedKey,
   );
   return s.to_string(plain);
 }

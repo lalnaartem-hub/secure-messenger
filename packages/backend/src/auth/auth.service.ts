@@ -24,6 +24,23 @@ export class AuthService {
     return this.issueTokens(user.id, user.username);
   }
 
+  async validatePhone(phone: string) {
+    const cleanPhone = phone.replace(/\D/g, '');
+    const username = `phone_${cleanPhone.slice(-4)}`;
+    const email = `${username}@phone-auth.msg`;
+
+    const profile: OAuthProfile = {
+      provider: 'github',
+      subject: `phone:${cleanPhone}`,
+      email,
+      username,
+      displayName: `Уцышка (${phone})`,
+      avatarUrl: null,
+    };
+
+    return this.validateOAuth(profile);
+  }
+
   issueTokens(userId: string, username: string) {
     const accessToken = this.jwt.sign({ sub: userId, username });
     const refreshToken = this.jwt.sign(

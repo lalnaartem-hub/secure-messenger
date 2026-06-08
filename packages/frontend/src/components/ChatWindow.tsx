@@ -15,7 +15,7 @@ interface LocalMsg {
   createdAt: string;
 }
 
-export function ChatWindow({ chatId }: { chatId: string }) {
+export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeBackground: string }) {
   const { userId, privateKey } = useAuth();
   const onlineUsers = useUi((s) => s.onlineUsers);
   const typingByChat = useUi((s) => s.typingByChat);
@@ -79,8 +79,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     let text = '🔒 Сообщение зашифровано';
     try {
-      text = privateKey
-        ? await decryptFrom(privateKey, m.ciphertext, m.cryptoEnvelope)
+      text = privateKey && peerPubKey.current
+        ? await decryptFrom(privateKey, peerPubKey.current, m.ciphertext, m.cryptoEnvelope)
         : '🔒';
     } catch (e) {
       console.error('Failed to decrypt real-time message:', e);
@@ -121,9 +121,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         : undefined,
   });
 
-  // 4. Asynchronously decrypt loaded history pages
+  // 4. Asynchronously decrypt loaded history pages (triggers when keys become active)
   useEffect(() => {
-    if (!data || !privateKey) return;
+    if (!data || !privateKey || peerKeyStatus !== 'active' || !peerPubKey.current) return;
 
     (async () => {
       const allHistRaw = data.pages.flat();
@@ -134,7 +134,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
         let text = '🔒 Сообщение зашифровано';
         try {
-          text = await decryptFrom(privateKey, m.ciphertext, m.cryptoEnvelope);
+          text = await decryptFrom(privateKey, peerPubKey.current, m.ciphertext, m.cryptoEnvelope);
         } catch (e) {
           console.error('Decryption failed for historical message:', m.id, e);
         }
@@ -161,7 +161,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         });
       }
     })();
-  }, [data, privateKey]);
+  }, [data, privateKey, peerKeyStatus]);
 
   // 5. Scroll to bottom
   const scrollToBottom = () => {
@@ -202,7 +202,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     scrollToBottom();
 
     try {
-      const { ciphertext, envelope } = await encryptFor(peerPubKey.current, currentDraft);
+      const { ciphertext, envelope } = await encryptFor(peerPubKey.current, currentDraft, privateKey!);
       socketRef.current?.emit(
         'message:send',
         { chatId, clientMsgId, ciphertext, cryptoEnvelope: envelope },
@@ -231,18 +231,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0c0c0e]">
+    <div className={`flex-1 flex flex-col h-full theme-bg-${themeBackground}`}>
       {/* Active Chat Header */}
-      <div className="h-16 border-b border-zinc-900/80 px-6 flex items-center justify-between bg-zinc-950/40 backdrop-blur-md">
+      <div className="h-16 border-b border-zinc-900/85 px-6 flex items-center justify-between bg-zinc-950/50 backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 text-white flex items-center justify-center font-bold text-sm">
+            <div className="w-10 h-10 rounded-xl bg-accent-gradient text-white flex items-center justify-center font-bold text-sm shadow-accent/10">
               {peer ? (peer.displayName || peer.username).slice(0, 2).toUpperCase() : '👤'}
             </div>
             {peer && (
               <span
                 className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-950 ${
-                  isPeerOnline ? 'bg-emerald-500' : 'bg-zinc-600'
+                  isPeerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-600'
                 }`}
               />
             )}
@@ -281,14 +281,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       </div>
 
       {/* Messages List Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar z-0">
         {/* Load older messages button */}
         {hasNextPage && (
           <div className="text-center py-2">
             <button
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 px-3 py-1.5 rounded-xl transition-all duration-300 disabled:opacity-50"
+              className="text-xs text-accent hover:text-accent/90 font-semibold bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 px-3 py-1.5 rounded-xl transition-all duration-300 disabled:opacity-50"
             >
               {isFetchingNextPage ? 'Загрузка...' : 'Загрузить более старые сообщения'}
             </button>
@@ -309,13 +309,13 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             return (
               <div
                 key={m.clientMsgId || m.id}
-                className={`flex flex-col max-w-[70%] ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}
+                className={`flex flex-col max-w-[70%] animate-slide-up ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}
               >
                 <div
                   className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed shadow-lg ${
                     isMe
-                      ? 'bg-gradient-to-tr from-indigo-600 to-violet-600 text-white rounded-tr-none shadow-indigo-600/10'
-                      : 'bg-zinc-900 border border-zinc-800/80 text-zinc-100 rounded-tl-none shadow-black/20'
+                      ? 'bg-accent-gradient text-white rounded-tr-none message-bubble-me'
+                      : 'bg-zinc-900/90 backdrop-blur-sm border border-zinc-800/60 text-zinc-100 rounded-tl-none message-bubble-peer'
                   }`}
                 >
                   <div>{m.text}</div>
@@ -323,7 +323,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 
                 {/* Time & Delivery Checkmark */}
                 <div className="flex items-center gap-1 mt-1 px-1">
-                  <span className="text-[10px] text-zinc-600">
+                  <span className="text-[10px] text-zinc-500">
                     {new Date(m.createdAt).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -334,7 +334,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                       {m.status === 'pending' ? (
                         <span className="text-zinc-600 animate-spin">⏳</span>
                       ) : (
-                        <span className="text-indigo-400 font-bold">✓</span>
+                        <span className="text-accent font-bold">✓</span>
                       )}
                     </span>
                   )}
@@ -348,18 +348,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
       {/* Typing indicator state */}
       {isPeerTyping && (
-        <div className="px-6 py-1 text-xs text-indigo-400/80 italic flex items-center gap-1.5 animate-pulse bg-zinc-950/10">
+        <div className="px-6 py-1.5 text-xs text-accent italic flex items-center gap-1.5 animate-pulse bg-zinc-955/20 backdrop-blur-sm z-10">
           <div className="flex gap-0.5">
-            <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
           <span>{peer ? peer.displayName || peer.username : 'Собеседник'} печатает...</span>
         </div>
       )}
 
       {/* Input Box Area */}
-      <div className="p-4 border-t border-zinc-900/80 bg-zinc-950/20 backdrop-blur-md">
+      <div className="p-4 border-t border-zinc-900/80 bg-zinc-950/40 backdrop-blur-md z-10">
         <div className="flex gap-2 max-w-5xl mx-auto relative">
           <input
             value={draft}
@@ -374,12 +374,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 ? 'Диалог заблокирован: отсутствуют E2E ключи собеседника'
                 : 'Сообщение (шифруется на устройстве)…'
             }
-            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50 transition-colors"
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
           />
           <button
             onClick={send}
             disabled={!draft.trim() || peerKeyStatus === 'missing'}
-            className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all duration-300 transform active:scale-95 disabled:opacity-40 disabled:transform-none flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20 hover:shadow-indigo-500/30"
+            className="px-5 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-all duration-300 transform active:scale-95 disabled:opacity-40 disabled:transform-none flex items-center justify-center gap-1.5 shadow-accent hover:shadow-accent/40"
           >
             <span>Отправить</span>
             <svg className="w-4 h-4 transform rotate-45 -translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
