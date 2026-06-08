@@ -207,3 +207,34 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border-bottom-left-radius: 4px;
 }
+
+/* Premium Keyframe Animations for Reactions & Transitions */
+@keyframes message-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-message-pop {
+  animation: message-pop-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes chat-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-chat-fade {
+  animation: chat-fade-in 0.25s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}

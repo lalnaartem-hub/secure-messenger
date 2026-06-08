@@ -33,7 +33,7 @@ export class MessagesService {
       `INSERT INTO messages (id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (chat_id, sender_id, client_msg_id) DO NOTHING
-       RETURNING id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at`,
+       RETURNING id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at, edited_at, reactions`,
       [
         id,
         input.chatId,
@@ -49,7 +49,7 @@ export class MessagesService {
     let row = insert.rows[0];
     if (!row) {
       const existing = await this.pool.query(
-        `SELECT id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at
+        `SELECT id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at, edited_at, reactions
          FROM messages WHERE chat_id=$1 AND sender_id=$2 AND client_msg_id=$3`,
         [input.chatId, input.senderId, input.clientMsgId],
       );
@@ -81,7 +81,7 @@ export class MessagesService {
       if (cached.length > 0) return cached.map((c) => JSON.parse(c));
     }
     const { rows } = await this.pool.query(
-      `SELECT id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at
+      `SELECT id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at, edited_at, reactions
        FROM messages
        WHERE chat_id = $1 AND ($2::timestamptz IS NULL OR (created_at, id) < ($2, $3))
        ORDER BY created_at DESC, id DESC
@@ -101,6 +101,77 @@ export class MessagesService {
     );
   }
 
+  async react(messageId: string, userId: string, reaction: string) {
+    // 1. Fetch current reactions
+    const { rows } = await this.pool.query(
+      `SELECT chat_id, reactions FROM messages WHERE id = $1`,
+      [messageId],
+    );
+    if (rows.length === 0) return null;
+    const { chat_id: chatId, reactions: currentReactions } = rows[0];
+
+    const reactions = { ...(currentReactions || {}) };
+
+    // Remove user's existing reaction of any emoji to implement "one reaction per user per message"
+    for (const emoji of Object.keys(reactions)) {
+      if (Array.isArray(reactions[emoji])) {
+        reactions[emoji] = reactions[emoji].filter((uid: string) => uid !== userId);
+        if (reactions[emoji].length === 0) {
+          delete reactions[emoji];
+        }
+      }
+    }
+
+    // Toggle reaction: if it wasn't the emoji clicked, add it
+    if (reaction) {
+      if (!reactions[reaction]) {
+        reactions[reaction] = [];
+      }
+      reactions[reaction].push(userId);
+    }
+
+    // 2. Save back to DB
+    await this.pool.query(
+      `UPDATE messages SET reactions = $1 WHERE id = $2`,
+      [JSON.stringify(reactions), messageId],
+    );
+
+    // 3. Clear recent cache
+    await this.redis.del(`chat:${chatId}:recent`);
+
+    return { chatId, reactions };
+  }
+
+  async edit(messageId: string, userId: string, ciphertext: string, cryptoEnvelope: any) {
+    const { rows } = await this.pool.query(
+      `UPDATE messages 
+       SET content = $1, crypto_envelope = $2, edited_at = now() 
+       WHERE id = $3 AND sender_id = $4
+       RETURNING id, chat_id, sender_id, kind, content, crypto_envelope, reply_to_id, client_msg_id, created_at, edited_at, reactions`,
+      [ciphertext, JSON.stringify(cryptoEnvelope), messageId, userId],
+    );
+    if (rows.length === 0) return null;
+
+    const updated = this.toDto(rows[0]);
+    // Clear recent cache
+    await this.redis.del(`chat:${updated.chatId}:recent`);
+    return updated;
+  }
+
+  async delete(messageId: string, userId: string) {
+    // Check if the user is the sender of the message
+    const { rows } = await this.pool.query(
+      `DELETE FROM messages WHERE id = $1 AND sender_id = $2 RETURNING chat_id`,
+      [messageId, userId],
+    );
+    if (rows.length === 0) return null;
+
+    const chatId = rows[0].chat_id;
+    // Clear recent cache
+    await this.redis.del(`chat:${chatId}:recent`);
+    return { chatId };
+  }
+
   private toDto(r: any) {
     return {
       id: r.id,
@@ -112,6 +183,8 @@ export class MessagesService {
       replyToId: r.reply_to_id,
       clientMsgId: r.client_msg_id,
       createdAt: r.created_at,
+      editedAt: r.edited_at,
+      reactions: r.reactions || {},
     };
   }
 }

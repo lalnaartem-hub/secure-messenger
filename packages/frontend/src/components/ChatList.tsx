@@ -61,30 +61,59 @@ export function ChatList({
   }, [chats, privateKey]);
 
   // 2. Listen to real-time incoming messages to instantly decrypt and update sidebar
-  useSocket(async (m) => {
-    const targetChat = chats.find((c) => c.id === m.chatId);
-    if (!targetChat) return;
+  useSocket(
+    async (m) => {
+      const targetChat = chats.find((c) => c.id === m.chatId);
+      if (!targetChat) return;
 
-    const peer = targetChat.participants?.find((p: any) => p.id !== currentUserId);
-    const peerPubKey = peer?.publicIdentityKey;
+      const peer = targetChat.participants?.find((p: any) => p.id !== currentUserId);
+      const peerPubKey = peer?.publicIdentityKey;
 
-    let text = '🔒 Сообщение';
-    if (privateKey && peerPubKey) {
-      try {
-        text = await decryptFrom(privateKey, peerPubKey, m.ciphertext, m.cryptoEnvelope);
-      } catch (e) {
-        console.error('[SidebarRealtime] Failed to decrypt:', e);
+      let text = '🔒 Сообщение';
+      if (privateKey && peerPubKey) {
+        try {
+          text = await decryptFrom(privateKey, peerPubKey, m.ciphertext, m.cryptoEnvelope);
+        } catch (e) {
+          console.error('[SidebarRealtime] Failed to decrypt:', e);
+        }
       }
+
+      setDecryptedSnippets((prev) => ({
+        ...prev,
+        [m.chatId]: text,
+      }));
+
+      // Invalidate query to trigger cache refresh and re-order chat lists
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    },
+    undefined, // onReaction
+    async (editedMsg) => {
+      const targetChat = chats.find((c) => c.id === editedMsg.chatId);
+      if (!targetChat) return;
+
+      const peer = targetChat.participants?.find((p: any) => p.id !== currentUserId);
+      const peerPubKey = peer?.publicIdentityKey;
+
+      let text = '🔒 Сообщение';
+      if (privateKey && peerPubKey) {
+        try {
+          text = await decryptFrom(privateKey, peerPubKey, editedMsg.ciphertext, editedMsg.cryptoEnvelope);
+        } catch (e) {
+          console.error('[SidebarRealtimeEdit] Failed to decrypt:', e);
+        }
+      }
+
+      setDecryptedSnippets((prev) => ({
+        ...prev,
+        [editedMsg.chatId]: text,
+      }));
+
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    },
+    (deleteData) => {
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
     }
-
-    setDecryptedSnippets((prev) => ({
-      ...prev,
-      [m.chatId]: text,
-    }));
-
-    // Invalidate query to trigger cache refresh and re-order chat lists
-    queryClient.invalidateQueries({ queryKey: ['chats'] });
-  });
+  );
 
   const getPeerInfo = (chat: any) => {
     if (chat.type !== 'direct' || !chat.participants) return null;

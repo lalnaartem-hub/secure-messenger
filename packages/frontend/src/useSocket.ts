@@ -8,18 +8,23 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
  * Custom hook owning the single Socket.IO connection.
  * JWT is sent in the handshake auth payload (validated server-side on connect).
  */
-export function useSocket(onMessage: (m: any) => void) {
+export function useSocket(
+  onMessage: (m: any) => void,
+  onReaction?: (data: { chatId: string; messageId: string; reactions: Record<string, string[]> }) => void,
+  onEdit?: (m: any) => void,
+  onDelete?: (data: { chatId: string; messageId: string }) => void,
+) {
   const token = useAuth((s) => s.accessToken);
   const setTyping = useUi((s) => s.setTyping);
   const setOnline = useUi((s) => s.setOnline);
   const ref = useRef<Socket | null>(null);
 
-  // Keep a mutable ref of the latest callback to avoid stale closures
-  const callbackRef = useRef(onMessage);
+  // Keep a mutable ref of the latest callbacks to avoid stale closures
+  const callbacksRef = useRef({ onMessage, onReaction, onEdit, onDelete });
   
   useEffect(() => {
-    callbackRef.current = onMessage;
-  }, [onMessage]);
+    callbacksRef.current = { onMessage, onReaction, onEdit, onDelete };
+  }, [onMessage, onReaction, onEdit, onDelete]);
 
   useEffect(() => {
     if (!token) return;
@@ -27,7 +32,19 @@ export function useSocket(onMessage: (m: any) => void) {
     ref.current = socket;
 
     socket.on('message:new', (m) => {
-      callbackRef.current(m);
+      callbacksRef.current.onMessage(m);
+    });
+
+    socket.on('message:reaction', (data) => {
+      callbacksRef.current.onReaction?.(data);
+    });
+
+    socket.on('message:edit', (m) => {
+      callbacksRef.current.onEdit?.(m);
+    });
+
+    socket.on('message:delete', (data) => {
+      callbacksRef.current.onDelete?.(data);
     });
     
     socket.on('typing', ({ chatId, userId }) => setTyping(chatId, userId));

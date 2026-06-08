@@ -105,3 +105,7 @@ CREATE TABLE IF NOT EXISTS message_receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_user_status
     ON message_receipts (user_id, status);
+
+-- Migration/Add reactions column to messages if not exists
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb;
+

@@ -13,6 +13,8 @@ interface LocalMsg {
   text: string;             // decrypted
   status: 'pending' | 'sent' | 'read';
   createdAt: string;
+  editedAt?: string;
+  reactions?: Record<string, string[]>;
 }
 
 export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeBackground: string }) {
@@ -23,6 +25,8 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
   const [messages, setMessages] = useState<LocalMsg[]>([]);
   const [draft, setDraft] = useState('');
   const [peerKeyStatus, setPeerKeyStatus] = useState<'loading' | 'active' | 'missing'>('loading');
+  const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
+
   const peerPubKey = useRef<string | null>(null);
   const decryptedIds = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -48,6 +52,8 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
     decryptedIds.current = new Set();
     peerPubKey.current = null;
     setPeerKeyStatus('loading');
+    setEditingMessage(null);
+    setDraft('');
 
     if (!peer) {
       setPeerKeyStatus('missing'); // Group chats or no peer
@@ -71,44 +77,79 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
   }, [chatId, peer]);
 
   // 2. Incoming real-time message handler
-  const socketRef = useSocket(async (m) => {
-    if (m.chatId !== chatId) return;
-    
-    // Skip if we already rendered this message through cache
-    if (decryptedIds.current.has(m.id)) return;
+  const socketRef = useSocket(
+    async (m) => {
+      if (m.chatId !== chatId) return;
+      
+      // Skip if we already rendered this message through cache
+      if (decryptedIds.current.has(m.id)) return;
 
-    let text = '🔒 Сообщение зашифровано';
-    try {
-      text = privateKey && peerPubKey.current
-        ? await decryptFrom(privateKey, peerPubKey.current, m.ciphertext, m.cryptoEnvelope)
-        : '🔒';
-    } catch (e) {
-      console.error('Failed to decrypt real-time message:', e);
-    }
-
-    const next: LocalMsg = {
-      id: m.id,
-      clientMsgId: m.clientMsgId,
-      senderId: m.senderId,
-      text,
-      status: 'sent',
-      createdAt: m.createdAt,
-    };
-
-    setMessages((prev) => {
-      // Reconcile optimistic update
-      const idx = prev.findIndex((x) => x.clientMsgId === m.clientMsgId);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = next;
-        return copy;
+      let text = '🔒 Сообщение зашифровано';
+      try {
+        text = privateKey && peerPubKey.current
+          ? await decryptFrom(privateKey, peerPubKey.current, m.ciphertext, m.cryptoEnvelope)
+          : '🔒';
+      } catch (e) {
+        console.error('Failed to decrypt real-time message:', e);
       }
-      return [...prev, next];
-    });
 
-    decryptedIds.current.add(m.id);
-    scrollToBottom();
-  });
+      const next: LocalMsg = {
+        id: m.id,
+        clientMsgId: m.clientMsgId,
+        senderId: m.senderId,
+        text,
+        status: 'sent',
+        createdAt: m.createdAt,
+        editedAt: m.editedAt,
+        reactions: m.reactions,
+      };
+
+      setMessages((prev) => {
+        // Reconcile optimistic update
+        const idx = prev.findIndex((x) => x.clientMsgId === m.clientMsgId);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+
+      decryptedIds.current.add(m.id);
+      scrollToBottom();
+    },
+    // onReaction
+    (data) => {
+      if (data.chatId !== chatId) return;
+      setMessages((prev) =>
+        prev.map((x) => (x.id === data.messageId ? { ...x, reactions: data.reactions } : x))
+      );
+    },
+    // onEdit
+    async (editedMsg) => {
+      if (editedMsg.chatId !== chatId) return;
+      let text = '🔒 Сообщение зашифровано';
+      try {
+        text = privateKey && peerPubKey.current
+          ? await decryptFrom(privateKey, peerPubKey.current, editedMsg.ciphertext, editedMsg.cryptoEnvelope)
+          : '🔒';
+      } catch (e) {
+        console.error('Failed to decrypt edited message:', e);
+      }
+      setMessages((prev) =>
+        prev.map((x) =>
+          x.id === editedMsg.id
+            ? { ...x, text, editedAt: editedMsg.editedAt, reactions: editedMsg.reactions }
+            : x
+        )
+      );
+    },
+    // onDelete
+    (data) => {
+      if (data.chatId !== chatId) return;
+      setMessages((prev) => prev.filter((x) => x.id !== data.messageId));
+    }
+  );
 
   // 3. Keyset pagination for infinite scrolling history
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
@@ -146,6 +187,8 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
           text,
           status: 'sent',
           createdAt: m.createdAt,
+          editedAt: m.editedAt,
+          reactions: m.reactions,
         });
         decryptedIds.current.add(m.id);
       }
@@ -176,7 +219,7 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
     }
   }, [chatId]);
 
-  // 6. Send message
+  // 6. Send / Edit message
   async function send() {
     if (!draft.trim()) return;
     if (peerKeyStatus === 'missing' || !peerPubKey.current) {
@@ -184,10 +227,27 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
       return;
     }
 
-    const clientMsgId = uuidv4();
     const currentDraft = draft;
     setDraft('');
 
+    if (editingMessage) {
+      const targetId = editingMessage.id;
+      setEditingMessage(null);
+      try {
+        const { ciphertext, envelope } = await encryptFor(peerPubKey.current, currentDraft, privateKey!);
+        socketRef.current?.emit('message:edit', {
+          chatId,
+          messageId: targetId,
+          ciphertext,
+          cryptoEnvelope: envelope,
+        });
+      } catch (e) {
+        console.error('Failed to encrypt/edit message:', e);
+      }
+      return;
+    }
+
+    const clientMsgId = uuidv4();
     // Prepend optimistic message
     const optimisticMsg: LocalMsg = {
       id: clientMsgId,
@@ -226,12 +286,39 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
     }
   }
 
+  function toggleReaction(messageId: string, reaction: string) {
+    socketRef.current?.emit('message:react', {
+      chatId,
+      messageId,
+      reaction,
+    });
+  }
+
+  function deleteMsg(messageId: string) {
+    if (confirm('Вы уверены, что хотите удалить это сообщение?')) {
+      socketRef.current?.emit('message:delete', {
+        chatId,
+        messageId,
+      });
+    }
+  }
+
+  function startEdit(m: LocalMsg) {
+    setEditingMessage({ id: m.id, text: m.text });
+    setDraft(m.text);
+  }
+
+  function cancelEdit() {
+    setEditingMessage(null);
+    setDraft('');
+  }
+
   function onType() {
     socketRef.current?.emit('typing', { chatId });
   }
 
   return (
-    <div className={`flex-1 flex flex-col h-full theme-bg-${themeBackground}`}>
+    <div className={`flex-1 flex flex-col h-full theme-bg-${themeBackground} animate-chat-fade`}>
       {/* Active Chat Header */}
       <div className="h-16 border-b border-zinc-900/85 px-6 flex items-center justify-between bg-zinc-950/50 backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
@@ -306,39 +393,131 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
         ) : (
           messages.map((m) => {
             const isMe = m.senderId === userId;
+            const hasReactions = m.reactions && Object.keys(m.reactions).length > 0;
+
             return (
               <div
                 key={m.clientMsgId || m.id}
-                className={`flex flex-col max-w-[70%] animate-slide-up ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}
+                className={`flex w-full group relative items-end ${isMe ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed shadow-lg ${
-                    isMe
-                      ? 'bg-accent-gradient text-white rounded-tr-none message-bubble-me'
-                      : 'bg-zinc-900/90 backdrop-blur-sm border border-zinc-800/60 text-zinc-100 rounded-tl-none message-bubble-peer'
-                  }`}
-                >
-                  <div>{m.text}</div>
-                </div>
-                
-                {/* Time & Delivery Checkmark */}
-                <div className="flex items-center gap-1 mt-1 px-1">
-                  <span className="text-[10px] text-zinc-500">
-                    {new Date(m.createdAt).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  {isMe && (
-                    <span className="text-[10px]">
-                      {m.status === 'pending' ? (
-                        <span className="text-zinc-600 animate-spin">⏳</span>
-                      ) : (
-                        <span className="text-accent font-bold">✓</span>
-                      )}
-                    </span>
+                {/* Editing / Deleting tools (My messages only) */}
+                {isMe && m.status !== 'pending' && (
+                  <div className="hidden group-hover:flex items-center gap-1 mr-2 self-center transition-all duration-200">
+                    <button
+                      onClick={() => startEdit(m)}
+                      className="p-1.5 hover:bg-zinc-800/80 rounded-lg text-zinc-400 hover:text-zinc-200 transition-all duration-200"
+                      title="Редактировать"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => deleteMsg(m.id)}
+                      className="p-1.5 hover:bg-red-500/10 rounded-lg text-zinc-400 hover:text-red-400 transition-all duration-200"
+                      title="Удалить"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                {/* Main Message Bubble Layout */}
+                <div className="relative flex flex-col max-w-[70%]">
+                  {/* Floating Reaction Emojis list on hover */}
+                  {m.status !== 'pending' && (
+                    <div className={`absolute bottom-full mb-1.5 flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded-full p-0.5 shadow-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto z-20 scale-90 group-hover:scale-100 origin-bottom ${isMe ? 'right-0' : 'left-0'}`}>
+                      {['👍', '❤️', '🔥', '😂', '😮', '😢'].map((emoji) => {
+                        const hasReacted = m.reactions?.[emoji]?.includes(userId!);
+                        return (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(m.id, emoji)}
+                            className={`w-7 h-7 flex items-center justify-center rounded-full text-sm transition-all duration-150 hover:scale-125 ${
+                              hasReacted ? 'bg-accent/20 hover:bg-accent/30' : 'hover:bg-zinc-800'
+                            }`}
+                          >
+                            {emoji}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
+
+                  {/* Bubble content */}
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed shadow-lg animate-message-pop ${
+                      isMe
+                        ? 'bg-accent-gradient text-white rounded-tr-none message-bubble-me'
+                        : 'bg-zinc-900/90 backdrop-blur-sm border border-zinc-800/60 text-zinc-100 rounded-tl-none message-bubble-peer'
+                    }`}
+                  >
+                    <div>{m.text}</div>
+
+                    {/* Reactions Pill Display */}
+                    {hasReactions && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 pt-1 border-t border-white/10">
+                        {Object.entries(m.reactions!).map(([emoji, userIds]) => {
+                          if (!userIds || userIds.length === 0) return null;
+                          const hasReacted = userIds.includes(userId!);
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleReaction(m.id, emoji)}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-all duration-250 ${
+                                hasReacted
+                                  ? 'bg-white/20 border-white/30 text-white'
+                                  : 'bg-zinc-850/60 border-zinc-750/50 text-zinc-300 hover:bg-zinc-800'
+                              }`}
+                            >
+                              <span>{emoji}</span>
+                              <span className="font-semibold">{userIds.length}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Time & Delivery Checkmark */}
+                  <div className={`flex items-center gap-1 mt-1 px-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    <span className="text-[10px] text-zinc-500">
+                      {new Date(m.createdAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    {m.editedAt && (
+                      <span className="text-[9px] text-zinc-500 font-normal ml-0.5">(ред.)</span>
+                    )}
+                    {isMe && (
+                      <span className="text-[10px]">
+                        {m.status === 'pending' ? (
+                          <span className="text-zinc-600 animate-spin">⏳</span>
+                        ) : (
+                          <span className="text-accent font-bold">✓</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Deleting/Editing tools (Peer messages - Delete only) */}
+                {!isMe && m.status !== 'pending' && (
+                  <div className="hidden group-hover:flex items-center gap-1 ml-2 self-center transition-all duration-200">
+                    <button
+                      onClick={() => deleteMsg(m.id)}
+                      className="p-1.5 hover:bg-red-500/10 rounded-lg text-zinc-400 hover:text-red-400 transition-all duration-200"
+                      title="Удалить"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })
@@ -358,6 +537,29 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
         </div>
       )}
 
+      {/* Editing Message Banner */}
+      {editingMessage && (
+        <div className="px-6 py-2 bg-zinc-900/90 border-t border-zinc-800/60 flex items-center justify-between animate-slide-up z-15">
+          <div className="flex items-center gap-2 min-w-0">
+            <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            <div className="text-xs min-w-0">
+              <div className="font-semibold text-accent">Редактирование сообщения</div>
+              <div className="text-zinc-400 truncate max-w-lg">{editingMessage.text}</div>
+            </div>
+          </div>
+          <button
+            onClick={cancelEdit}
+            className="p-1 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Input Box Area */}
       <div className="p-4 border-t border-zinc-900/80 bg-zinc-950/40 backdrop-blur-md z-10">
         <div className="flex gap-2 max-w-5xl mx-auto relative">
@@ -372,6 +574,8 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
             placeholder={
               peerKeyStatus === 'missing'
                 ? 'Диалог заблокирован: отсутствуют E2E ключи собеседника'
+                : editingMessage
+                ? 'Редактировать сообщение…'
                 : 'Сообщение (шифруется на устройстве)…'
             }
             className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
@@ -381,7 +585,7 @@ export function ChatWindow({ chatId, themeBackground }: { chatId: string; themeB
             disabled={!draft.trim() || peerKeyStatus === 'missing'}
             className="px-5 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-all duration-300 transform active:scale-95 disabled:opacity-40 disabled:transform-none flex items-center justify-center gap-1.5 shadow-accent hover:shadow-accent/40"
           >
-            <span>Отправить</span>
+            <span>{editingMessage ? 'Сохранить' : 'Отправить'}</span>
             <svg className="w-4 h-4 transform rotate-45 -translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>

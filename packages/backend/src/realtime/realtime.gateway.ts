@@ -114,4 +114,56 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       userId: client.data.userId,
     });
   }
+
+  @SubscribeMessage('message:react')
+  async onReact(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { chatId: string; messageId: string; reaction: string },
+  ) {
+    const res = await this.messages.react(body.messageId, client.data.userId, body.reaction);
+    if (res) {
+      this.server.to(`chat:${body.chatId}`).emit('message:reaction', {
+        chatId: body.chatId,
+        messageId: body.messageId,
+        reactions: res.reactions,
+      });
+    }
+  }
+
+  @SubscribeMessage('message:edit')
+  async onEdit(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: {
+      chatId: string;
+      messageId: string;
+      ciphertext: string;
+      cryptoEnvelope: Record<string, unknown>;
+    },
+  ) {
+    const updated = await this.messages.edit(
+      body.messageId,
+      client.data.userId,
+      body.ciphertext,
+      body.cryptoEnvelope,
+    );
+    if (updated) {
+      this.server.to(`chat:${body.chatId}`).emit('message:edit', updated);
+    }
+  }
+
+  @SubscribeMessage('message:delete')
+  async onDelete(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { chatId: string; messageId: string },
+  ) {
+    const res = await this.messages.delete(body.messageId, client.data.userId);
+    if (res) {
+      this.server.to(`chat:${body.chatId}`).emit('message:delete', {
+        chatId: body.chatId,
+        messageId: body.messageId,
+      });
+    }
+  }
 }
+
