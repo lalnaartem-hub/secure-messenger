@@ -14,12 +14,22 @@ export function useSocket(onMessage: (m: any) => void) {
   const setOnline = useUi((s) => s.setOnline);
   const ref = useRef<Socket | null>(null);
 
+  // Keep a mutable ref of the latest callback to avoid stale closures
+  const callbackRef = useRef(onMessage);
+  
+  useEffect(() => {
+    callbackRef.current = onMessage;
+  }, [onMessage]);
+
   useEffect(() => {
     if (!token) return;
     const socket = io(BACKEND_URL, { auth: { token }, transports: ['websocket'] });
     ref.current = socket;
 
-    socket.on('message:new', onMessage);
+    socket.on('message:new', (m) => {
+      callbackRef.current(m);
+    });
+    
     socket.on('typing', ({ chatId, userId }) => setTyping(chatId, userId));
     socket.on('presence:update', ({ userId, online }) => setOnline(userId, online));
 

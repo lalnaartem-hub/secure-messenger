@@ -52,6 +52,25 @@ export class UsersService {
     ]);
   }
 
+  async updateProfile(userId: string, update: { displayName?: string; avatarUrl?: string }) {
+    const fields: string[] = [];
+    const values: any[] = [userId];
+    let idx = 2;
+    if (update.displayName !== undefined) {
+      fields.push(`display_name = $${idx++}`);
+      values.push(update.displayName);
+    }
+    if (update.avatarUrl !== undefined) {
+      fields.push(`avatar_url = $${idx++}`);
+      values.push(update.avatarUrl);
+    }
+    if (fields.length === 0) return;
+    await this.pool.query(
+      `UPDATE users SET ${fields.join(', ')}, updated_at = now() WHERE id = $1`,
+      values,
+    );
+  }
+
   async getPublicProfile(userId: string) {
     const { rows } = await this.pool.query(
       `SELECT id, username, display_name, avatar_url, public_identity_key, last_seen_at

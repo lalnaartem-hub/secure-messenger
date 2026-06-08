@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../store';
+import { api } from '../api';
 
 export type ChatBackground = 'slate' | 'starry' | 'aurora' | 'sunset';
 export type AccentColor = 'indigo' | 'emerald' | 'rose' | 'amber';
@@ -9,21 +10,40 @@ export function SettingsModal({
   currentBackground,
   currentAccent,
   onSaveSettings,
+  onProfileUpdated,
 }: {
   onClose: () => void;
   currentBackground: ChatBackground;
   currentAccent: AccentColor;
   onSaveSettings: (bg: ChatBackground, accent: AccentColor) => void;
+  onProfileUpdated?: (name: string, avatar: string) => void;
 }) {
-  const { userId, logout } = useAuth();
+  const { logout } = useAuth();
   const [bg, setBg] = useState<ChatBackground>(currentBackground);
   const [accent, setAccent] = useState<AccentColor>(currentAccent);
   const [displayName, setDisplayName] = useState(localStorage.getItem('myUsername') || '');
+  const [avatarUrl, setAvatarUrl] = useState(localStorage.getItem('myAvatarUrl') || '');
 
-  const handleSave = () => {
-    localStorage.setItem('myUsername', displayName);
-    onSaveSettings(bg, accent);
-    onClose();
+  const handleSave = async () => {
+    try {
+      await api.updateProfile({ displayName, avatarUrl });
+      localStorage.setItem('myUsername', displayName);
+      localStorage.setItem('myAvatarUrl', avatarUrl);
+      if (onProfileUpdated) {
+        onProfileUpdated(displayName, avatarUrl);
+      }
+      onSaveSettings(bg, accent);
+      onClose();
+    } catch (err) {
+      console.error('Failed to save profile:', err);
+      alert('Ошибка сохранения профиля на сервере.');
+    }
+  };
+
+  const generateRandomAvatar = () => {
+    const randomSeed = Math.random().toString(36).substring(7);
+    const url = `https://api.dicebear.com/7.x/bottts/svg?seed=${randomSeed}`;
+    setAvatarUrl(url);
   };
 
   const accents: { name: AccentColor; color: string; bg: string }[] = [
@@ -34,8 +54,8 @@ export function SettingsModal({
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-zinc-950 border border-zinc-900 w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200 text-zinc-100">
+    <div className={`fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 theme-accent-${accent}`}>
+      <div className="bg-zinc-950 border border-zinc-900 w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col animate-slide-up duration-200 text-zinc-100">
         
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
@@ -49,16 +69,56 @@ export function SettingsModal({
 
         {/* Profile Details */}
         <div className="space-y-4 mb-6">
+          <div className="flex items-center gap-4">
+            {/* Avatar Preview */}
+            <div className="relative flex-shrink-0">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt="Avatar Preview"
+                  className="w-16 h-16 rounded-2xl object-cover border border-zinc-800 shadow-lg"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-accent-gradient text-white flex items-center justify-center font-bold text-xl shadow-accent">
+                  {(displayName || 'ME').slice(0, 2).toUpperCase()}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+                Имя пользователя
+              </label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-850 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent transition-colors text-zinc-100"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
-              Имя пользователя
+              Ссылка на аватарку
             </label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={avatarUrl}
+                onChange={(e) => setAvatarUrl(e.target.value)}
+                placeholder="https://example.com/avatar.png"
+                className="flex-1 bg-zinc-900 border border-zinc-850 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent transition-colors text-zinc-100 placeholder-zinc-600"
+              />
+              <button
+                type="button"
+                onClick={generateRandomAvatar}
+                className="px-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-xs font-semibold transition-colors text-zinc-300 transform active:scale-95"
+                title="Сгенерировать случайный аватар"
+              >
+                🎲 Случ.
+              </button>
+            </div>
           </div>
         </div>
 
@@ -112,13 +172,13 @@ export function SettingsModal({
         <div className="flex gap-3 mt-auto">
           <button
             onClick={logout}
-            className="flex-1 py-3 bg-red-650 hover:bg-red-600 text-white font-semibold rounded-xl text-sm transition-all duration-200 active:scale-[0.98]"
+            className="flex-1 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/10 font-semibold rounded-xl text-sm transition-all duration-200 active:scale-[0.98]"
           >
             Выйти
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 font-semibold rounded-xl text-sm transition-all duration-200 active:scale-[0.98]"
+            className="flex-1 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl text-sm transition-all duration-200 active:scale-[0.98] shadow-accent"
           >
             Сохранить
           </button>

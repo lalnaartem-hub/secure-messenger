@@ -19,6 +19,8 @@ async function req(path: string, init: RequestInit = {}) {
 export const api = {
   phoneAuth: (phone: string, code: string) =>
     req('/auth/phone', { method: 'POST', body: JSON.stringify({ phone, code }) }),
+  updateProfile: (body: { displayName?: string; avatarUrl?: string }) =>
+    req('/users/profile', { method: 'PATCH', body: JSON.stringify(body) }),
   listChats: () => req('/chats'),
   createChat: (body: { type: string; title?: string; memberIds: string[] }) =>
     req('/chats', { method: 'POST', body: JSON.stringify(body) }),

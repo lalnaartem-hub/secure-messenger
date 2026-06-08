@@ -12,6 +12,7 @@ export function App() {
   const { accessToken, userId, setAuth, privateKey, setPrivateKey, logout } = useAuth();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [myUsername, setMyUsername] = useState<string | null>(null);
+  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(() => localStorage.getItem('myAvatarUrl'));
   
   // Settings & Theme states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -71,6 +72,9 @@ export function App() {
       setAuth({ accessToken: tokens.accessToken, userId: payload.sub });
       setMyUsername(payload.username || null);
       localStorage.setItem('myUsername', payload.username || '');
+      const avatar = payload.avatarUrl || '';
+      setMyAvatarUrl(avatar);
+      localStorage.setItem('myAvatarUrl', avatar);
     } catch (err: any) {
       console.error('[PhoneAuth] Verification failed:', err);
       setSmsError('Неверный код. Попробуйте 1234');
@@ -89,11 +93,16 @@ export function App() {
         setAuth({ accessToken: token, userId: payload.sub });
         setMyUsername(payload.username || null);
         localStorage.setItem('myUsername', payload.username || '');
+        const avatar = payload.avatarUrl || '';
+        setMyAvatarUrl(avatar);
+        localStorage.setItem('myAvatarUrl', avatar);
         history.replaceState(null, '', location.pathname);
       }
     } else {
       const savedUser = localStorage.getItem('myUsername');
       if (savedUser) setMyUsername(savedUser);
+      const savedAvatar = localStorage.getItem('myAvatarUrl');
+      if (savedAvatar) setMyAvatarUrl(savedAvatar);
     }
   }, []);
 
@@ -280,10 +289,18 @@ export function App() {
         {/* Current User Card at bottom */}
         <div className="p-4 border-t border-zinc-900 bg-zinc-950/80 flex items-center justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="relative">
-              <div className="w-9 h-9 rounded-xl bg-accent-gradient text-white flex items-center justify-center font-bold text-xs shadow-accent">
-                {myUsername ? myUsername.slice(0, 2).toUpperCase() : 'ME'}
-              </div>
+            <div className="relative flex-shrink-0">
+              {myAvatarUrl ? (
+                <img
+                  src={myAvatarUrl}
+                  alt="My Avatar"
+                  className="w-9 h-9 rounded-xl object-cover border border-zinc-800"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-xl bg-accent-gradient text-white flex items-center justify-center font-bold text-xs shadow-accent">
+                  {myUsername ? myUsername.slice(0, 2).toUpperCase() : 'ME'}
+                </div>
+              )}
               <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-950 bg-emerald-500" />
             </div>
             <div className="min-w-0">
@@ -352,6 +369,10 @@ export function App() {
           currentBackground={themeBackground}
           currentAccent={themeAccent}
           onSaveSettings={handleSaveSettings}
+          onProfileUpdated={(name, avatar) => {
+            setMyUsername(name);
+            setMyAvatarUrl(avatar);
+          }}
         />
       )}
     </div>
