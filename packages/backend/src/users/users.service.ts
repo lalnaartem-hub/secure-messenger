@@ -8,17 +8,41 @@ export class UsersService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   async upsertFromOAuth(p: OAuthProfile) {
-    const { rows } = await this.pool.query(
-      `INSERT INTO users (username, email, display_name, avatar_url, oauth_provider, oauth_subject)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (oauth_provider, oauth_subject)
-       DO UPDATE SET display_name = EXCLUDED.display_name,
-                     avatar_url   = EXCLUDED.avatar_url,
-                     updated_at   = now()
-       RETURNING id, username, email, display_name, avatar_url`,
-      [p.username, p.email, p.displayName ?? null, p.avatarUrl ?? null, p.provider, p.subject],
-    );
-    return rows[0];
+    try {
+      // 1. Check if user already exists with this email
+      const emailQuery = await this.pool.query(
+        `SELECT id, username, email, display_name, avatar_url FROM users WHERE email = $1`,
+        [p.email],
+      );
+      if (emailQuery.rows[0]) {
+        return emailQuery.rows[0];
+      }
+
+      // 2. Check if user already exists with this username
+      const usernameQuery = await this.pool.query(
+        `SELECT id, username, email, display_name, avatar_url FROM users WHERE username = $1`,
+        [p.username],
+      );
+      if (usernameQuery.rows[0]) {
+        return usernameQuery.rows[0];
+      }
+
+      // 3. Insert new user if no unique conflicts
+      const { rows } = await this.pool.query(
+        `INSERT INTO users (username, email, display_name, avatar_url, oauth_provider, oauth_subject)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (oauth_provider, oauth_subject)
+         DO UPDATE SET display_name = EXCLUDED.display_name,
+                       avatar_url   = EXCLUDED.avatar_url,
+                       updated_at   = now()
+         RETURNING id, username, email, display_name, avatar_url`,
+        [p.username, p.email, p.displayName ?? null, p.avatarUrl ?? null, p.provider, p.subject],
+      );
+      return rows[0];
+    } catch (err) {
+      console.error('[auth-upsert] Database error during OAuth login upsert:', err);
+      throw err;
+    }
   }
 
   async setIdentityKey(userId: string, publicIdentityKey: string) {
